@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+npm-debug.log*
+
+# Node
+node_modules/
+.pnp/
+.pnp.js
+.next/
+out/
+build/
+dist/
+*.pem
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+
+# Vercel
+.vercel
+
+# Claude
+.claude/
+
+# Runtime conversation logs
+lira-main/backend/conversations/
