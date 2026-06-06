@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import type { AgentMode, CEFRLevel, SessionResponse } from "@/types/session";
+import type { AgentMode, CEFRLevel, Scenario, SessionResponse } from "@/types/session";
 
 const MODES: { value: AgentMode; label: string; description: string }[] = [
   { value: "free_talk", label: "Free Talk", description: "Natural conversation" },
@@ -29,12 +29,23 @@ const LEVELS: { value: CEFRLevel; label: string }[] = [
   { value: "C1", label: "C1 - Advanced" },
 ];
 
+const SCENARIOS: { value: Scenario; label: string; description: string }[] = [
+  { value: "job_interview", label: "Job Interview", description: "Marketing interview" },
+  { value: "restaurant", label: "Restaurant", description: "Ordering food" },
+  { value: "hotel", label: "Hotel", description: "Check-in" },
+  { value: "airport", label: "Airport", description: "Flight check-in" },
+  { value: "shopping", label: "Shopping", description: "Buying clothes" },
+  { value: "doctor", label: "Doctor", description: "Health checkup" },
+  { value: "meeting", label: "Meeting", description: "Business meeting" },
+];
+
 export default function Home() {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<AgentMode>("free_talk");
   const [level, setLevel] = useState<CEFRLevel>("B1");
+  const [scenario, setScenario] = useState<Scenario | null>(null);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>("");
   const [micPermission, setMicPermission] = useState<"pending" | "granted" | "denied">("pending");
@@ -69,7 +80,7 @@ export default function Home() {
     setError(null);
 
     try {
-      const response = await api.createSession({ mode, level });
+      const response = await api.createSession({ mode, level, scenario: scenario || undefined });
       setSession(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start session");
@@ -99,6 +110,11 @@ export default function Home() {
               {MODES.find((m) => m.value === session.mode)?.label}
             </Badge>
             <Badge variant="outline">{session.level}</Badge>
+            {session.scenario && (
+              <Badge variant="default">
+                {SCENARIOS.find((s) => s.value === session.scenario)?.label || session.scenario}
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -136,7 +152,7 @@ export default function Home() {
           <CardDescription>Choose your practice mode and level</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
+           <div className="space-y-2">
             <label className="text-sm font-medium">Practice Mode</label>
             <div className="grid grid-cols-2 gap-2">
               {MODES.map((m) => (
@@ -151,6 +167,22 @@ export default function Home() {
                 </Button>
               ))}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Scenario (Optional)</label>
+            <Select value={scenario || ""} onValueChange={(v) => setScenario(v as Scenario || null)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a scenario" />
+              </SelectTrigger>
+              <SelectContent>
+                {SCENARIOS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label} - {s.description}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

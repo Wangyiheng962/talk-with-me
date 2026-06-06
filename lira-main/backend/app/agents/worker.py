@@ -31,6 +31,8 @@ class AgentWorker:
         session_id: UUID,
         mode: str = "free_talk",
         level: str = "B1",
+        scenario: str | None = None,
+        feedback_mode: str = "real_time",
     ) -> VoiceAgent:
         """
         Connect to a LiveKit room and create a voice agent.
@@ -39,6 +41,8 @@ class AgentWorker:
         @param session_id - Session UUID for analytics tracking
         @param mode - Conversation mode
         @param level - CEFR level
+        @param scenario - Optional scenario for roleplay
+        @param feedback_mode - Feedback mode (real_time or batch)
         @returns VoiceAgent instance
         """
         room = rtc.Room()
@@ -64,12 +68,14 @@ class AgentWorker:
         print(f"Agent connected to room: {room_name}")
         print(f"Mode: {mode}, Level: {level}")
 
-        # Create and start voice agent
+               # Create and start voice agent
         agent = VoiceAgent(
             room=room,
             session_id=session_id,
             mode=mode,
             level=level,
+            scenario=scenario,
+            feedback_mode=feedback_mode,
             on_transcription=lambda t, f: print(f"[STT] {'✓' if f else '...'} {t}"),
             on_response=lambda r: print(f"[Agent] {r}"),
         )

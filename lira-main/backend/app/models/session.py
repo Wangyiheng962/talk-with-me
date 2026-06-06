@@ -25,6 +25,25 @@ class CEFRLevel(str, Enum):
     C1 = "C1"
 
 
+class Scenario(str, Enum):
+    """Practice scenarios."""
+
+    JOB_INTERVIEW = "job_interview"
+    RESTAURANT = "restaurant"
+    HOTEL = "hotel"
+    AIRPORT = "airport"
+    SHOPPING = "shopping"
+    DOCTOR = "doctor"
+    MEETING = "meeting"
+
+
+class FeedbackMode(str, Enum):
+    """Feedback delivery mode."""
+
+    REAL_TIME = "real_time"
+    BATCH = "batch"
+
+
 class Message(BaseModel):
     """A single conversation message."""
 
@@ -46,6 +65,8 @@ class Session(BaseModel):
     user_id: str | None = None
     mode: AgentMode = AgentMode.FREE_TALK
     level: CEFRLevel = CEFRLevel.B1
+    scenario: Scenario | None = None
+    feedback_mode: FeedbackMode = FeedbackMode.REAL_TIME
     history: list[Message] = Field(default_factory=list)
     metrics: SessionMetrics = Field(default_factory=SessionMetrics)
 
@@ -55,6 +76,8 @@ class SessionCreate(BaseModel):
 
     mode: AgentMode = AgentMode.FREE_TALK
     level: CEFRLevel = CEFRLevel.B1
+    scenario: Scenario | None = None
+    feedback_mode: FeedbackMode = FeedbackMode.REAL_TIME
     user_id: str | None = None
 
 
@@ -64,5 +87,7 @@ class SessionResponse(BaseModel):
     session_id: UUID
     mode: AgentMode
     level: CEFRLevel
+    scenario: Scenario | None = None
+    feedback_mode: FeedbackMode = FeedbackMode.REAL_TIME
     livekit_token: str
     livekit_url: str

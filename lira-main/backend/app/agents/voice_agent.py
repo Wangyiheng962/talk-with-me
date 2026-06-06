@@ -13,6 +13,7 @@ from app.services.deepgram_stt import DeepgramSTTService
 from app.services.deepgram_tts import DeepgramTTSService
 from app.services.analytics import analytics_service
 from app.services.conversation_logger import conversation_logger
+from app.services.correction_service import correction_service
 
 
 # Filler phrases to play while LLM is generating
@@ -41,6 +42,8 @@ class VoiceAgent:
         session_id: UUID,
         mode: str = "free_talk",
         level: str = "B1",
+        scenario: str | None = None,
+        feedback_mode: str = "real_time",
         on_transcription: Callable[[str, bool], None] | None = None,
         on_response: Callable[[str], None] | None = None,
     ):
@@ -51,6 +54,8 @@ class VoiceAgent:
         @param session_id - Session UUID for analytics tracking
         @param mode - Conversation mode (free_talk, corrective, roleplay, guided)
         @param level - CEFR level (A2, B1, B2, C1)
+        @param scenario - Optional scenario for roleplay
+        @param feedback_mode - Feedback mode (real_time or batch)
         @param on_transcription - Callback for user speech transcription
         @param on_response - Callback for agent responses
         """
@@ -58,11 +63,13 @@ class VoiceAgent:
         self.session_id = session_id
         self.mode = mode
         self.level = level
+        self.scenario = scenario
+        self.feedback_mode = feedback_mode
 
         # Services
         self.stt: DeepgramSTTService | None = None
         self.tts = DeepgramTTSService(voice="luna")  # Warm female voice
-        self.conversation = ConversationAgent(mode=mode, level=level)
+        self.conversation = ConversationAgent(mode=mode, level=level, scenario=scenario, feedback_mode=feedback_mode)
 
         # Callbacks
         self.on_transcription = on_transcription
@@ -81,8 +88,16 @@ class VoiceAgent:
         self._tts_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._tts_worker_task: asyncio.Task | None = None
         self._interrupt_tts = False
+
+        # Score tracking for final report
+        self._total_grammar_score = 0
+        self._total_scenario_score = 0
+        self._total_overall_score = 0
+        self._turn_count = 0
+        self._total_corrections: list[dict] = []
         self._debounce_delay = 0.5  # Wait 500ms after last transcript (reduced from 800ms)
         self._response_start_time = 0.0  # For timing measurements
+        self._turn_index = 0  # Track conversation turns
         self._filler_cache: dict[str, bytes] = {}  # Pre-generated filler audio
         self._fillers_ready = False
 
@@ -125,11 +140,13 @@ class VoiceAgent:
 
         print("Voice agent started, waiting for participant audio...")
 
-        # Log session start
-        conversation_logger.log_session_start(
+        # Log session start (async, non-blocking)
+        await asyncio.to_thread(
+            conversation_logger.log_session_start,
             session_id=self.session_id,
             mode=self.mode,
             level=self.level,
+            scenario=self.scenario,
         )
 
     async def _pregenerate_fillers(self):
@@ -188,14 +205,24 @@ class VoiceAgent:
 
     async def _send_opening_greeting(self):
         """Send opening greeting when user joins."""
-        greetings = {
-            "free_talk": "Hey! What's up?",
-            "corrective": "Hi! Let's chat. I'll help with tips!",
-            "roleplay": "Ready for roleplay! What scenario?",
-            "guided": "Hi! How's your day going?",
+        # Scenario-specific greetings for roleplay
+        roleplay_greetings = {
+            "job_interview": "Hi! I'm the hiring manager. Let's start the interview. Could you tell me about yourself?",
+            "restaurant": "Hi! Welcome to our restaurant. May I take your order?",
+            "meeting": "Hi everyone! Let's get started. What's everyone's update on the project?",
         }
 
-        greeting = greetings.get(self.mode, greetings["free_talk"])
+        if self.mode == "roleplay" and self.scenario:
+            greeting = roleplay_greetings.get(self.scenario, f"Ready for {self.scenario}! Let's begin.")
+        elif self.mode == "roleplay":
+            greeting = "Ready for roleplay! What scenario would you like to practice?"
+        elif self.mode == "corrective":
+            greeting = "Hi! Let's chat. I'll give you tips to improve!"
+        elif self.mode == "guided":
+            greeting = "Hi! How's your day going?"
+        else:
+            greeting = "Hey! What's up?"
+
         print(f"[Agent] Opening: {greeting}")
 
         if self.on_response:
@@ -228,8 +255,36 @@ class VoiceAgent:
             await self._tts_queue.put(None)  # Signal shutdown
             self._tts_worker_task.cancel()
 
-        # Log session end
-        conversation_logger.log_session_end(self.session_id)
+        # Generate final report
+        report = self._generate_report()
+
+        # Log session end with report (async, non-blocking)
+        await asyncio.to_thread(
+            conversation_logger.log_session_end,
+            self.session_id,
+            report=report,
+        )
+
+    def _generate_report(self) -> dict:
+        """Generate final report with averaged scores and corrections."""
+        avg_grammar = self._total_grammar_score / max(self._turn_count, 1)
+        avg_scenario = self._total_scenario_score / max(self._turn_count, 1)
+        avg_overall = self._total_overall_score / max(self._turn_count, 1)
+
+        # If there were corrections, adjust overall score down
+        if self._total_corrections:
+            avg_overall = min(avg_overall, 4.0)
+            avg_grammar = min(avg_grammar, 4.0)
+            avg_scenario = min(avg_scenario, 4.0)
+
+        return {
+            "turn_count": self._turn_count,
+            "avg_grammar_score": round(avg_grammar, 1),
+            "avg_scenario_score": round(avg_scenario, 1),
+            "avg_overall_score": round(avg_overall, 1),
+            "total_corrections": len(self._total_corrections),
+            "corrections": self._total_corrections[:10],  # Top 10 corrections
+        }
 
     def _handle_transcript(self, text: str, is_final: bool):
         """Handle incoming transcription from STT."""
@@ -311,7 +366,7 @@ class VoiceAgent:
         return any(pattern in response_lower for pattern in correction_patterns)
 
     async def _track_analytics(self, user_text: str, agent_response: str):
-        """Track conversation analytics."""
+        """Track conversation analytics and corrections with scenario scoring."""
         user_words = self._count_words(user_text)
         agent_words = self._count_words(agent_response)
         has_correction = self._detect_correction(agent_response)
@@ -324,15 +379,59 @@ class VoiceAgent:
         )
         print(f"[Analytics] User: {user_words} words, Agent: {agent_words} words, Correction: {has_correction}")
 
-        # Log turn to JSONL
-        conversation_logger.log_turn(
+        # Determine if realtime mode based on feedback_mode
+        is_realtime = self.feedback_mode == "real_time"
+
+        # Always analyze with batch mode for full results
+        result = await correction_service.analyze(
+            user_text=user_text,
+            scenario=self.scenario,
+            is_realtime=False,  # Always batch for full scores
+        )
+
+        grammar_score = result.get("grammar_score", 5)
+        scenario_score = result.get("scenario_score", 5)
+        overall_score = result.get("overall_score", 5)
+        corrections = result.get("corrections", [])
+
+        print(f"[CorrectionService] Scores: Grammar={grammar_score}, Scenario={scenario_score}, Overall={overall_score}")
+        if corrections:
+            print(f"[CorrectionService] Found {len(corrections)} issues: {corrections}")
+
+        # Realtime mode: also TTS quick feedback
+        if is_realtime:
+            quick_feedback = result.get("quick_feedback")
+            if quick_feedback:
+                print(f"[CorrectionService] Quick feedback: {quick_feedback}")
+                await self.speak(f"Quick tip: {quick_feedback}")
+
+        # Log turn to JSONL (async, non-blocking) - always
+        turn_index = self._turn_index
+        self._turn_index += 1
+        await asyncio.to_thread(
+            conversation_logger.log_turn,
             session_id=self.session_id,
+            turn_index=turn_index,
             user_text=user_text,
             agent_text=agent_response,
             mode=self.mode,
             level=self.level,
-            correction=has_correction,
+            corrections=corrections,
+            soe_scores={},  # SOE scores will be added later
+            grammar_score=grammar_score,
+            scenario_score=scenario_score,
+            overall_score=overall_score,
         )
+
+        # Accumulate scores for final report
+        self._turn_count += 1
+        self._total_grammar_score += grammar_score
+        self._total_scenario_score += scenario_score
+        self._total_overall_score += overall_score
+        if corrections:
+            self._total_corrections.extend(corrections)
+
+        return result
 
     async def _process_response(self):
         """Process pending text and generate streaming LLM response."""
