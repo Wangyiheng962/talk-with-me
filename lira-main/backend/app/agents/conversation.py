@@ -17,6 +17,7 @@ class ConversationState(TypedDict):
     mode: str
     level: str
     scenario: str | None
+    feedback_mode: str
 
 
 class ConversationAgent:
@@ -26,17 +27,19 @@ class ConversationAgent:
     Manages conversation state and generates contextual responses.
     """
 
-    def __init__(self, mode: str = "free_talk", level: str = "B1", scenario: str | None = None):
+    def __init__(self, mode: str = "free_talk", level: str = "B1", scenario: str | None = None, feedback_mode: str = "batch"):
         """
         Initialize the conversation agent.
 
         @param mode - Conversation mode (free_talk, corrective, roleplay, guided)
         @param level - CEFR level (A2, B1, B2, C1)
         @param scenario - Optional roleplay scenario
+        @param feedback_mode - Feedback mode (real_time or batch)
         """
         self.mode = mode
         self.level = level
         self.scenario = scenario
+        self.feedback_mode = feedback_mode
         self.llm = get_llm_client()
         self.graph = self._build_graph()
         self.state: ConversationState = {
@@ -44,6 +47,7 @@ class ConversationAgent:
             "mode": mode,
             "level": level,
             "scenario": scenario,
+            "feedback_mode": feedback_mode,
         }
 
     def _build_graph(self) -> StateGraph:
@@ -140,6 +144,11 @@ class ConversationAgent:
         """Set roleplay scenario."""
         self.scenario = scenario
         self.state["scenario"] = scenario
+
+    def set_feedback_mode(self, feedback_mode: str):
+        """Set feedback mode."""
+        self.feedback_mode = feedback_mode
+        self.state["feedback_mode"] = feedback_mode
 
     def reset(self):
         """Reset conversation history."""

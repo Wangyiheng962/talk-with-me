@@ -28,13 +28,15 @@ class AgentManager:
             self._worker = AgentWorker()
         return self._worker
 
-    async def spawn_agent(self, session_id: UUID, mode: str = "free_talk", level: str = "B1"):
+    async def spawn_agent(self, session_id: UUID, mode: str = "free_talk", level: str = "B1", scenario: str | None = None, feedback_mode: str = "real_time"):
         """
         Spawn a voice agent for a session.
 
         @param session_id - Session UUID
         @param mode - Conversation mode
         @param level - CEFR level
+        @param scenario - Optional scenario for roleplay
+        @param feedback_mode - Feedback mode (real_time or batch)
         """
         room_name = f"lira-{session_id}"
         await self.worker.connect_to_room(
@@ -42,6 +44,8 @@ class AgentManager:
             session_id=session_id,
             mode=mode,
             level=level,
+            scenario=scenario,
+            feedback_mode=feedback_mode,
         )
 
     async def stop_agent(self, session_id: UUID):

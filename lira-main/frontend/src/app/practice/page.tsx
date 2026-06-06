@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { CEFRLevel, SessionResponse } from "@/types/session";
+import type { Scenario, SessionResponse, FeedbackMode } from "@/types/session";
 import { LiveKitRoom, RoomAudioRenderer, useRoomContext } from "@livekit/components-react";
 import { useSessionWebSocket } from "@/hooks/useSessionWebSocket";
 
@@ -37,11 +37,15 @@ interface ConversationEntry {
   ended_at?: string;
 }
 
-const LEVELS: { value: CEFRLevel; label: string }[] = [
-  { value: "A2", label: "A2 初中级" },
-  { value: "B1", label: "B1 中级" },
-  { value: "B2", label: "B2 中高级" },
-  { value: "C1", label: "C1 高级" },
+const SCENARIOS: { value: Scenario; label: string }[] = [
+  { value: "job_interview", label: "面试" },
+  { value: "restaurant", label: "点餐" },
+  { value: "meeting", label: "会议" },
+];
+
+const FEEDBACK_MODES: { value: FeedbackMode; label: string }[] = [
+  { value: "real_time", label: "实时纠错" },
+  { value: "batch", label: "结束后评分" },
 ];
 
 function ConversationView({ sessionId, onEndSession }: { sessionId: string; onEndSession: () => void }) {
@@ -248,10 +252,13 @@ export default function PracticePage() {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [level, setLevel] = useState<CEFRLevel>("B1");
+  const [scenario, setScenario] = useState<Scenario | null>(null);
+  const [feedbackMode, setFeedbackMode] = useState<FeedbackMode>("real_time");
   const [historySessions, setHistorySessions] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<ConversationEntry[] | null>(null);
+  const [showReport, setShowReport] = useState(false);
+  const [report, setReport] = useState<any>(null);
 
   useEffect(() => {
     loadHistory();
@@ -286,7 +293,7 @@ export default function PracticePage() {
     setError(null);
 
     try {
-      const response = await api.createSession({ mode: "corrective", level });
+      const response = await api.createSession({ mode: scenario ? "roleplay" : "free_talk", scenario: scenario || undefined, feedback_mode: feedbackMode });
       setSession(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : "启动会话失败");
@@ -297,8 +304,18 @@ export default function PracticePage() {
 
   const endSession = async () => {
     if (session) {
+      const sessionId = session.session_id;
       try {
-        await api.endSession(session.session_id);
+        await api.endSession(sessionId);
+        // Fetch report
+        const reportRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sessions/${sessionId}/report`);
+        if (reportRes.ok) {
+          const reportData = await reportRes.json();
+          if (reportData.report) {
+            setReport(reportData.report);
+            setShowReport(true);
+          }
+        }
       } catch (err) {
         console.error("Failed to end session:", err);
       }
@@ -402,22 +419,44 @@ export default function PracticePage() {
             </p>
           </div>
 
-          {/* Level Selection */}
+          {/* Scenario Selection */}
           <div className="space-y-3">
             <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
               <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.94 23.94 0 0112 15c-3.183 0-6.175-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 1h8a2 2 0 0122v8a2 2 0 01-2 2H8a2 2 0 01-2-2v-2a2 2 0 012-2h2" />
               </svg>
-              选择你的水平
+              选择场景 (可选)
             </label>
-            <Select value={level} onValueChange={(v) => setLevel(v as CEFRLevel)}>
+            <Select value={scenario || ""} onValueChange={(v) => setScenario(v as Scenario || null)}>
+              <SelectTrigger className="w-full h-12 bg-slate-50 border-slate-200">
+                <SelectValue placeholder="不选择则自由对话" />
+              </SelectTrigger>
+              <SelectContent>
+                {SCENARIOS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Feedback Mode Selection */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+              <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              纠错模式
+            </label>
+            <Select value={feedbackMode} onValueChange={(v) => setFeedbackMode(v as FeedbackMode)}>
               <SelectTrigger className="w-full h-12 bg-slate-50 border-slate-200">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {LEVELS.map((l) => (
-                  <SelectItem key={l.value} value={l.value}>
-                    {l.label}
+                {FEEDBACK_MODES.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>
+                    {f.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -559,6 +598,73 @@ export default function PracticePage() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReport && report && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowReport(false)}>
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-slate-700">练习报告</h3>
+                <Button variant="ghost" size="sm" onClick={() => setShowReport(false)}>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </Button>
+              </div>
+
+              {/* Score Cards */}
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="text-center p-4 bg-blue-50 rounded-xl">
+                  <div className="text-3xl font-bold text-blue-600">{report.avg_grammar_score}</div>
+                  <div className="text-xs text-slate-500 mt-1">语法分数</div>
+                </div>
+                <div className="text-center p-4 bg-green-50 rounded-xl">
+                  <div className="text-3xl font-bold text-green-600">{report.avg_scenario_score}</div>
+                  <div className="text-xs text-slate-500 mt-1">场景分数</div>
+                </div>
+                <div className="text-center p-4 bg-purple-50 rounded-xl">
+                  <div className="text-3xl font-bold text-purple-600">{report.avg_overall_score}</div>
+                  <div className="text-xs text-slate-500 mt-1">综合分数</div>
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className="space-y-3 mb-6">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-slate-600">对话轮数</span>
+                  <span className="font-medium">{report.turn_count}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-slate-600">纠错次数</span>
+                  <span className="font-medium">{report.total_corrections}</span>
+                </div>
+              </div>
+
+              {/* Corrections List */}
+              {report.corrections && report.corrections.length > 0 && (
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-medium text-slate-700 mb-3">主要问题</h4>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {report.corrections.map((correction: any, idx: number) => (
+                      <div key={idx} className="text-sm p-2 bg-slate-50 rounded-lg">
+                        <div className="text-slate-500 line-through">{correction.original}</div>
+                        <div className="text-green-600 font-medium">{correction.suggestion}</div>
+                        <div className="text-xs text-slate-400 mt-1">{correction.issue}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Close Button */}
+              <Button className="w-full mt-6" onClick={() => setShowReport(false)}>
+                完成
+              </Button>
             </CardContent>
           </Card>
         </div>

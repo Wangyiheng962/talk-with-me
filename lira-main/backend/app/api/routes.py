@@ -84,6 +84,8 @@ async def create_session(request: SessionCreate):
     session = Session(
         mode=request.mode,
         level=request.level,
+        scenario=request.scenario,
+        feedback_mode=request.feedback_mode,
         user_id=request.user_id,
     )
     sessions[session.session_id] = session
@@ -111,6 +113,8 @@ async def create_session(request: SessionCreate):
                 session.session_id,
                 mode=session.mode.value,
                 level=session.level.value,
+                scenario=session.scenario.value if session.scenario else None,
+                feedback_mode=session.feedback_mode.value if session.feedback_mode else "real_time",
             )
         except Exception as e:
             print(f"[Agent] Failed to spawn agent: {e}")
@@ -123,6 +127,8 @@ async def create_session(request: SessionCreate):
         session_id=session.session_id,
         mode=session.mode,
         level=session.level,
+        scenario=session.scenario,
+        feedback_mode=session.feedback_mode,
         livekit_token=token,
         livekit_url=settings.livekit_url,
     )
@@ -176,6 +182,24 @@ async def get_session_conversation(session_id: UUID):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     return {"session_id": str(session_id), "entries": entries}
+
+
+@router.get("/sessions/{session_id}/report")
+async def get_session_report(session_id: UUID):
+    """Get session report with scores and corrections summary."""
+    from app.services.conversation_logger import conversation_logger
+
+    entries = conversation_logger.read_session(session_id)
+
+    if not entries:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Find the session_end entry with report
+    session_end = next((e for e in entries if e.get("type") == "session_end"), None)
+    if not session_end or not session_end.get("report"):
+        return {"session_id": str(session_id), "report": None, "message": "Session not ended or no report available"}
+
+    return {"session_id": str(session_id), "report": session_end["report"]}
 
 
 @router.get("/sessions/{session_id}")
